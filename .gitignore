@@ -1,0 +1,18 @@
+# Node.js dependencies
+**/node_modules/
+
+# Java build artifacts
+**/target/
+*.class
+*.jar
+
+# Environment secrets (MUST BE IGNORED)
+**/.env
+
+# IDE settings
+.idea/
+.vscode/
+
+# System files
+.DS_Store
+Thumbs.db
