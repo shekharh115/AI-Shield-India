@@ -15,7 +15,21 @@ mongoose.connect(process.env.MONGO_URI)
     .catch(err => console.error("❌ DB Error:", err));
 
 // The Compliance Endpoint
-app.post('/api/v1/sign',uploadMiddleware, signAsset);
+const auth = require('./middleware/auth');
+app.post('/api/v1/sign', auth, uploadMiddleware, signAsset);
+
+// Add this temporary route to generate a test token
+const jwt = require('jsonwebtoken');
+
+app.get('/api/v1/get-test-token', (req, res) => {
+  const payload = { user: { id: "test_user_id" } };
+
+  // Sign the token using your secret key from .env
+  jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' }, (err, token) => {
+    if (err) throw err;
+    res.json({ token });
+  });
+});
 
 
 const PORT = process.env.PORT || 5000;
