@@ -1,164 +1,166 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 function App() {
+  // 1. Authentication State
+  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [isLoginView, setIsLoginView] = useState(true);
+  const [authFormData, setAuthFormData] = useState({ name: '', email: '', password: '' });
+
+  // 2. Upload & Result State
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Function to generate the Professional PDF Certificate
-  const downloadCertificate = () => {
-      try {
-        const doc = new jsPDF();
+  // Sync token with localStorage whenever it changes
+  useEffect(() => {
+    if (token) {
+      localStorage.setItem('token', token);
+    } else {
+      localStorage.removeItem('token');
+    }
+  }, [token]);
 
-        // 1. Branding & Header (REMOVED EMOJI TO FIX GARBLED TEXT)
-        doc.setFontSize(22);
-        doc.setTextColor(0, 86, 179);
-        doc.text("AI-Shield India Compliance", 14, 20); // Plain text is safer
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    const endpoint = isLoginView ? '/api/v1/login' : '/api/v1/register';
+    try {
+      const res = await axios.post(`http://localhost:5000${endpoint}`, authFormData);
+      setToken(res.data.token);
+      alert(isLoginView ? "Login Successful!" : "Account Created!");
+    } catch (err) {
+      alert(err.response?.data?.msg || "Authentication Failed");
+    }
+  };
 
-        doc.setFontSize(10);
-        doc.setTextColor(100);
-        doc.text("Official Certification for Synthetic Assets (IT Rules 2026)", 14, 28);
-        doc.line(14, 32, 196, 32);
-
-        // 2. Regulatory Data Table
-        autoTable(doc, {
-          startY: 40,
-          head: [['Compliance Requirement', 'Verification Details']],
-          body: [
-            ['Asset ID (Pixel Hash)', result.assetHash || 'Verified Fingerprint'],
-            ['Compliance Status', 'FULLY COMPLIANT'],
-            ['Regulatory Standard', 'MeitY IT Amendment Rules 2026'],
-            ['Origin Platform', 'AI-Shield-India-Vault'],
-            ['Certification Date', new Date().toLocaleString()],
-          ],
-          theme: 'striped',
-          headStyles: { fillColor: [0, 86, 179] },
-        });
-
-        // 3. Legal Footer
-        const finalY = doc.lastAutoTable.finalY;
-        doc.setFontSize(8);
-        doc.setTextColor(150);
-        doc.text("This document serves as legal proof of SGI registration under Section 3(1)(b).", 14, finalY + 10);
-
-        doc.save(`AI_Shield_Certificate_${Date.now()}.pdf`);
-      } catch (err) {
-        console.error("PDF Error:", err);
-      }
-    };
-
-//   const handleUpload = async (e) => {
-//     e.preventDefault();
-//     if (!file) return alert("Please select an image file first!");
-//
-//     setLoading(true);
-//     const formData = new FormData();
-//     formData.append('asset', file);
-//     formData.append('clientId', 'mumbai_marketing_agency_01');
-//
-//     try {
-//       // Sending request to secured Node.js API
-//       const res = await axios.post('http://localhost:5000/api/v1/sign', formData, {
-//         headers: {
-//           'Content-Type': 'multipart/form-data',
-//           'x-auth-token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjp7ImlkIjoidGVzdF91c2VyX2lkIn0sImlhdCI6MTc3MjYzNDQ1MywiZXhwIjoxNzcyNjM4MDUzfQ.DU7qq2Tnimiz3EJokzwy1KoyiwACiPRzu8OIsnJMsZg'
-//         }
-//       });
-//       setResult(res.data);
-//     } catch (err) {
-//       console.error(err);
-//       alert("Compliance Check Failed. Ensure your Token is valid and Backend is running.");
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-const handleUpload = async (e) => {
+  const handleUpload = async (e) => {
     e.preventDefault();
     if (!file) return alert("Please select an image file first!");
-
-    // GET THE TOKEN FROM STORAGE
-    const token = localStorage.getItem('token');
-    if (!token) return alert("Please login first!");
 
     setLoading(true);
     const formData = new FormData();
     formData.append('asset', file);
+    formData.append('clientId', 'mumbai_marketing_agency_01');
 
     try {
+      // Use the dynamic token from state instead of a hardcoded string
       const res = await axios.post('http://localhost:5000/api/v1/sign', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-          'x-auth-token': token // Use the dynamic token
+          'x-auth-token': token
         }
       });
       setResult(res.data);
     } catch (err) {
       console.error(err);
-      alert("Unauthorized: Please log in again.");
+      alert("Compliance Check Failed. Your session might have expired.");
     } finally {
       setLoading(false);
     }
   };
 
+  const downloadCertificate = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(22);
+    doc.setTextColor(0, 86, 179);
+    doc.text("AI-Shield India Compliance", 14, 20);
+
+    autoTable(doc, {
+      startY: 40,
+      head: [['Compliance Requirement', 'Verification Details']],
+      body: [
+        ['Asset ID', result.assetHash || 'Verified'],
+        ['Status', 'FULLY COMPLIANT'],
+        ['Standard', 'MeitY IT Rules 2026'],
+        ['Date', new Date().toLocaleString()],
+      ],
+      theme: 'striped',
+      headStyles: { fillColor: [0, 86, 179] },
+    });
+    doc.save(`Certificate_${Date.now()}.pdf`);
+  };
+
+  // UI FOR LOGIN / REGISTER
+  if (!token) {
+    return (
+      <div style={{ padding: '40px', maxWidth: '400px', margin: 'auto', fontFamily: 'sans-serif' }}>
+        <h2>{isLoginView ? 'Login' : 'Register'} to AI-Shield</h2>
+        <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+          {!isLoginView && (
+            <input
+              placeholder="Full Name"
+              required
+              onChange={(e) => setAuthFormData({...authFormData, name: e.target.value})}
+              style={{ padding: '10px' }}
+            />
+          )}
+          <input
+            type="email"
+            placeholder="Email"
+            required
+            onChange={(e) => setAuthFormData({...authFormData, email: e.target.value})}
+            style={{ padding: '10px' }}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            required
+            onChange={(e) => setAuthFormData({...authFormData, password: e.target.value})}
+            style={{ padding: '10px' }}
+          />
+          <button type="submit" style={{ padding: '10px', backgroundColor: '#0056b3', color: 'white', border: 'none', cursor: 'pointer' }}>
+            {isLoginView ? 'Login' : 'Sign Up'}
+          </button>
+        </form>
+        <p onClick={() => setIsLoginView(!isLoginView)} style={{ cursor: 'pointer', color: '#0056b3', marginTop: '15px', textAlign: 'center' }}>
+          {isLoginView ? "Need an account? Register here" : "Already have an account? Login"}
+        </p>
+      </div>
+    );
+  }
+
+  // UI FOR LOGGED IN USERS (UPLOAD DASHBOARD)
   return (
-    <div style={{ padding: '40px', maxWidth: '800px', margin: 'auto', fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' }}>
-      <header style={{ borderBottom: '2px solid #0056b3', marginBottom: '30px' }}>
-        <h1 style={{ color: '#0056b3' }}>AI-Shield Compliance Portal</h1>
-        <p>Official Provenance & Metadata Injection Service (India 2026)</p>
+    <div style={{ padding: '40px', maxWidth: '800px', margin: 'auto', fontFamily: 'sans-serif' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #0056b3', marginBottom: '30px' }}>
+        <h1 style={{ color: '#0056b3' }}>AI-Shield Portal</h1>
+        <button onClick={() => setToken(null)} style={{ background: 'none', border: '1px solid red', color: 'red', cursor: 'pointer', padding: '5px 10px' }}>Logout</button>
       </header>
 
-      <div style={{ background: '#f9f9f9', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-        <h3 style={{ marginTop: 0 }}>Step 1: Upload Synthetic Asset</h3>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => setFile(e.target.files[0])}
-          style={{ marginBottom: '20px', display: 'block' }}
-        />
+<div style={{ background: '#f9f9f9', padding: '30px', borderRadius: '12px' }}>
+  <h3>Step 1: Upload Synthetic Asset</h3>
+  <input
+    type="file"
+    accept="image/*"
+    onChange={(e) => setFile(e.target.files[0])}
+    style={{ marginBottom: '10px', display: 'block' }}
+  />
 
-        <button
-          onClick={handleUpload}
-          disabled={loading}
-          style={{
-            padding: '12px 24px',
-            backgroundColor: loading ? '#ccc' : '#0056b3',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontSize: '16px',
-            fontWeight: 'bold'
-          }}
-        >
-          {loading ? 'Processing Legal Signature...' : 'Certify & Sign Asset'}
-        </button>
-      </div>
+  {/* The filename display fix */}
+  {file ? (
+    <div style={{ marginBottom: '20px', fontSize: '14px', color: '#333' }}>
+      <strong>Selected File:</strong> {file.name}
+    </div>
+  ) : (
+    <p style={{ marginBottom: '20px', fontSize: '14px', color: '#888' }}>No file chosen</p>
+  )}
+
+  <button
+    onClick={handleUpload}
+    disabled={loading}
+    style={{ padding: '12px 24px', backgroundColor: loading ? '#ccc' : '#0056b3', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+  >
+    {loading ? 'Processing...' : 'Certify & Sign Asset'}
+  </button>
+</div>
+
 
       {result && (
         <div style={{ marginTop: '30px', border: '2px solid #28a745', padding: '25px', borderRadius: '12px', backgroundColor: '#e9f7ef' }}>
-          <h3 style={{ color: '#28a745', marginTop: 0 }}>✅ Asset Successfully Certified</h3>
-          <p>Your asset has been fingerprinted and injected with mandatory XMP metadata.</p>
-
-          <button
-            onClick={downloadCertificate}
-            style={{
-              padding: '12px 24px',
-              backgroundColor: '#28a745',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '16px',
-              fontWeight: 'bold',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px'
-            }}
-          >
+          <h3 style={{ color: '#28a745' }}>✅ Asset Successfully Certified</h3>
+          <button onClick={downloadCertificate} style={{ padding: '12px 24px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
             Download PDF Certificate 📄
           </button>
         </div>
