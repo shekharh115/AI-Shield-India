@@ -50,27 +50,55 @@ function App() {
       }
     };
 
-  const handleUpload = async (e) => {
+//   const handleUpload = async (e) => {
+//     e.preventDefault();
+//     if (!file) return alert("Please select an image file first!");
+//
+//     setLoading(true);
+//     const formData = new FormData();
+//     formData.append('asset', file);
+//     formData.append('clientId', 'mumbai_marketing_agency_01');
+//
+//     try {
+//       // Sending request to secured Node.js API
+//       const res = await axios.post('http://localhost:5000/api/v1/sign', formData, {
+//         headers: {
+//           'Content-Type': 'multipart/form-data',
+//           'x-auth-token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjp7ImlkIjoidGVzdF91c2VyX2lkIn0sImlhdCI6MTc3MjYzNDQ1MywiZXhwIjoxNzcyNjM4MDUzfQ.DU7qq2Tnimiz3EJokzwy1KoyiwACiPRzu8OIsnJMsZg'
+//         }
+//       });
+//       setResult(res.data);
+//     } catch (err) {
+//       console.error(err);
+//       alert("Compliance Check Failed. Ensure your Token is valid and Backend is running.");
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
+
+const handleUpload = async (e) => {
     e.preventDefault();
     if (!file) return alert("Please select an image file first!");
+
+    // GET THE TOKEN FROM STORAGE
+    const token = localStorage.getItem('token');
+    if (!token) return alert("Please login first!");
 
     setLoading(true);
     const formData = new FormData();
     formData.append('asset', file);
-    formData.append('clientId', 'mumbai_marketing_agency_01');
 
     try {
-      // Sending request to secured Node.js API
       const res = await axios.post('http://localhost:5000/api/v1/sign', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-          'x-auth-token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjp7ImlkIjoidGVzdF91c2VyX2lkIn0sImlhdCI6MTc3MjYzNDQ1MywiZXhwIjoxNzcyNjM4MDUzfQ.DU7qq2Tnimiz3EJokzwy1KoyiwACiPRzu8OIsnJMsZg'
+          'x-auth-token': token // Use the dynamic token
         }
       });
       setResult(res.data);
     } catch (err) {
       console.error(err);
-      alert("Compliance Check Failed. Ensure your Token is valid and Backend is running.");
+      alert("Unauthorized: Please log in again.");
     } finally {
       setLoading(false);
     }
