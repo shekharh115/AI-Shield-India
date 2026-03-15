@@ -14,6 +14,10 @@ function App() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // 3. Dashboard View State
+  const [viewTab, setViewTab] = useState('upload'); // 'upload' or 'history'
+  const [historyLogs, setHistoryLogs] = useState([]);
+
   // Sync token with localStorage whenever it changes
   useEffect(() => {
     if (token) {
@@ -22,6 +26,24 @@ function App() {
       localStorage.removeItem('token');
     }
   }, [token]);
+
+  // Fetch history when the user clicks the History tab
+  const fetchHistory = async () => {
+    try {
+      const res = await axios.get('http://localhost:5000/api/v1/history', {
+        headers: { 'x-auth-token': token }
+      });
+      setHistoryLogs(res.data.logs);
+    } catch (err) {
+      console.error("Error fetching history", err);
+    }
+  };
+
+  useEffect(() => {
+    if (viewTab === 'history') {
+      fetchHistory();
+    }
+  }, [viewTab]);
 
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
@@ -42,10 +64,9 @@ function App() {
     setLoading(true);
     const formData = new FormData();
     formData.append('asset', file);
-    formData.append('clientId', 'mumbai_marketing_agency_01');
+    // Note: clientId is now handled securely on the backend via the token!
 
     try {
-      // Use the dynamic token from state instead of a hardcoded string
       const res = await axios.post('http://localhost:5000/api/v1/sign', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
@@ -62,6 +83,7 @@ function App() {
   };
 
   const downloadCertificate = () => {
+    if (!result) return;
     const doc = new jsPDF();
     doc.setFontSize(22);
     doc.setTextColor(0, 86, 179);
@@ -121,48 +143,157 @@ function App() {
     );
   }
 
-  // UI FOR LOGGED IN USERS (UPLOAD DASHBOARD)
+  // UI FOR LOGGED IN USERS (DASHBOARD)
   return (
     <div style={{ padding: '40px', maxWidth: '800px', margin: 'auto', fontFamily: 'sans-serif' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #0056b3', marginBottom: '30px' }}>
-        <h1 style={{ color: '#0056b3' }}>AI-Shield Portal</h1>
-        <button onClick={() => setToken(null)} style={{ background: 'none', border: '1px solid red', color: 'red', cursor: 'pointer', padding: '5px 10px' }}>Logout</button>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #0056b3', marginBottom: '30px', paddingBottom: '10px' }}>
+        <h1 style={{ color: '#0056b3', margin: 0 }}>AI-Shield Portal</h1>
+        <div>
+          <button onClick={() => setViewTab('upload')} style={{ background: 'none', border: 'none', fontSize: '16px', marginRight: '15px', cursor: 'pointer', fontWeight: viewTab === 'upload' ? 'bold' : 'normal', color: viewTab === 'upload' ? '#0056b3' : '#333' }}>
+            Upload Asset
+          </button>
+          <button onClick={() => setViewTab('history')} style={{ background: 'none', border: 'none', fontSize: '16px', marginRight: '25px', cursor: 'pointer', fontWeight: viewTab === 'history' ? 'bold' : 'normal', color: viewTab === 'history' ? '#0056b3' : '#333' }}>
+            History & Analytics
+          </button>
+          <button onClick={() => setToken(null)} style={{ background: 'white', border: '1px solid red', color: 'red', borderRadius: '4px', cursor: 'pointer', padding: '6px 12px' }}>
+            Logout
+          </button>
+        </div>
       </header>
 
-<div style={{ background: '#f9f9f9', padding: '30px', borderRadius: '12px' }}>
-  <h3>Step 1: Upload Synthetic Asset</h3>
-  <input
-    type="file"
-    accept="image/*"
-    onChange={(e) => setFile(e.target.files[0])}
-    style={{ marginBottom: '10px', display: 'block' }}
-  />
+      {/* UPLOAD TAB */}
+      {viewTab === 'upload' && (
+        <div style={{ background: '#f9f9f9', padding: '30px', borderRadius: '12px' }}>
+          <h3>Step 1: Upload Synthetic Asset</h3>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => setFile(e.target.files[0])}
+            style={{ marginBottom: '10px', display: 'block' }}
+          />
 
-  {/* The filename display fix */}
-  {file ? (
-    <div style={{ marginBottom: '20px', fontSize: '14px', color: '#333' }}>
-      <strong>Selected File:</strong> {file.name}
-    </div>
-  ) : (
-    <p style={{ marginBottom: '20px', fontSize: '14px', color: '#888' }}>No file chosen</p>
-  )}
+          {file ? (
+            <div style={{ marginBottom: '20px', fontSize: '14px', color: '#333' }}>
+              <strong>Selected File:</strong> {file.name}
+            </div>
+          ) : (
+            <p style={{ marginBottom: '20px', fontSize: '14px', color: '#888' }}>No file chosen</p>
+          )}
 
-  <button
-    onClick={handleUpload}
-    disabled={loading}
-    style={{ padding: '12px 24px', backgroundColor: loading ? '#ccc' : '#0056b3', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
-  >
-    {loading ? 'Processing...' : 'Certify & Sign Asset'}
-  </button>
-</div>
-
-
-      {result && (
-        <div style={{ marginTop: '30px', border: '2px solid #28a745', padding: '25px', borderRadius: '12px', backgroundColor: '#e9f7ef' }}>
-          <h3 style={{ color: '#28a745' }}>✅ Asset Successfully Certified</h3>
-          <button onClick={downloadCertificate} style={{ padding: '12px 24px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
-            Download PDF Certificate 📄
+          <button
+            onClick={handleUpload}
+            disabled={loading}
+            style={{ padding: '12px 24px', backgroundColor: loading ? '#ccc' : '#0056b3', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+          >
+            {loading ? 'Processing...' : 'Certify & Sign Asset'}
           </button>
+
+          {result && (
+            <div style={{ marginTop: '30px', border: '2px solid #28a745', padding: '25px', borderRadius: '12px', backgroundColor: '#e9f7ef' }}>
+              <h3 style={{ color: '#28a745', marginTop: 0 }}>✅ Asset Successfully Certified</h3>
+
+              <div style={{ display: 'flex', gap: '15px', marginTop: '20px' }}>
+                <button onClick={downloadCertificate} style={{ padding: '12px 24px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
+                  Download PDF Certificate 📄
+                </button>
+
+                <a
+                  href={`http://localhost:5000/${result.downloadPath}`}
+                  download
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ padding: '12px 24px', backgroundColor: '#0056b3', color: 'white', textDecoration: 'none', borderRadius: '6px', textAlign: 'center' }}
+                >
+                  Download Protected Image 🖼️
+                </a>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* HISTORY TAB */}
+      {viewTab === 'history' && (
+        <div style={{ background: '#f9f9f9', padding: '30px', borderRadius: '12px' }}>
+          <h3 style={{ marginTop: 0 }}>Your Certification History</h3>
+          <p style={{ color: '#666', marginBottom: '20px' }}>Showing {historyLogs.length} assets secured.</p>
+
+          <div style={{ overflowX: 'auto' }}>
+                     <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white' }}>
+                                   <thead>
+                                     <tr style={{ backgroundColor: '#0056b3', color: 'white', textAlign: 'left' }}>
+                                       <th style={{ padding: '12px', border: '1px solid #ddd' }}>Date Secured</th>
+                                       <th style={{ padding: '12px', border: '1px solid #ddd' }}>Asset Preview</th>
+                                       <th style={{ padding: '12px', border: '1px solid #ddd' }}>Asset Name</th>
+                                       <th style={{ padding: '12px', border: '1px solid #ddd' }}>Status</th>
+                                       {/* NEW: Column for the Download action */}
+                                       <th style={{ padding: '12px', border: '1px solid #ddd', textAlign: 'center' }}>Action</th>
+                                     </tr>
+                                   </thead>
+                                   <tbody>
+                                     {historyLogs.map(log => {
+
+                                       // 1. ROBUST DATE FALLBACK LOGIC
+                                       let displayDate = "Unknown Date";
+                                       if (log.timestamp) {
+                                         const dbDate = new Date(log.timestamp);
+                                         if (!isNaN(dbDate.getTime())) displayDate = dbDate.toLocaleString();
+                                       } else if (log.assetHash && log.assetHash.includes('-')) {
+                                         const extractedTime = parseInt(log.assetHash.split('-')[0]);
+                                         if (!isNaN(extractedTime)) displayDate = new Date(extractedTime).toLocaleString();
+                                       }
+
+                                       // 2. SAFE NAME CLEANUP
+                                       const cleanName = log.assetHash.includes('-')
+                                         ? log.assetHash.substring(log.assetHash.indexOf('-') + 1)
+                                         : log.assetHash;
+
+                                       return (
+                                         <tr key={log._id} style={{ borderBottom: '1px solid #ddd', verticalAlign: 'middle' }}>
+
+                                           {/* Fixed Date Display */}
+                                           <td style={{ padding: '12px', color: '#333' }}>{displayDate}</td>
+
+                                           <td style={{ padding: '12px', textAlign: 'center' }}>
+                                             <img
+                                               src={`http://localhost:5000/uploads/${log.assetHash}`}
+                                               alt="Secured Asset"
+                                               style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #ccc' }}
+                                             />
+                                           </td>
+
+                                           <td style={{ padding: '12px', wordBreak: 'break-all', fontWeight: '500', color: '#333' }}>
+                                             {cleanName}
+                                           </td>
+
+                                           <td style={{ padding: '12px', color: 'green', fontWeight: 'bold' }}>COMPLIANT ✅</td>
+
+                                           {/* NEW: The Download Button */}
+                                           <td style={{ padding: '12px', textAlign: 'center' }}>
+                                             <a
+                                               href={`http://localhost:5000/uploads/${log.assetHash}`}
+                                               download
+                                               target="_blank"
+                                               rel="noreferrer"
+                                               style={{ padding: '8px 12px', backgroundColor: '#28a745', color: 'white', textDecoration: 'none', borderRadius: '4px', fontSize: '14px', display: 'inline-block' }}
+                                             >
+                                               ⬇️ Download
+                                             </a>
+                                           </td>
+
+                                         </tr>
+                                       );
+                                     })}
+                                     {historyLogs.length === 0 && (
+                                       <tr>
+                                         <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#888' }}>
+                                           No history found. Go secure some assets!
+                                         </td>
+                                       </tr>
+                                     )}
+                                   </tbody>
+                                 </table>
+                    </div>
         </div>
       )}
     </div>
