@@ -1,4 +1,3 @@
-const { exec } = require('child_process');
 const path = require('path');
 const multer = require('multer');
 const AuditLog = require('../models/AuditLog');
@@ -12,46 +11,54 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-exports.uploadMiddleware = upload.single('asset'); // 'asset' is the field name from React
+exports.uploadMiddleware = upload.single('asset');
 
-// Process and sign the asset
+// Process and sign the asset via the Spring Boot Microservice
 exports.signAsset = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
   const filePath = path.resolve(req.file.path);
-
-  // Use the authenticated user's ID as the clientId
   const clientId = req.user.id;
 
-  const jarPath = path.join(__dirname, '../../Shield/target/Shield-1.0-SNAPSHOT-jar-with-dependencies.jar');
-  const cmd = `java -jar "${jarPath}" "${filePath}" "${clientId}"`;
+  try {
+    // 1. Send HTTP request to the running Spring Boot service
+    const javaResponse = await fetch('http://localhost:8080/api/sign-local', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath, clientId })
+    });
 
-  exec(cmd, async (error, stdout, stderr) => {
-    if (error) return res.status(500).json({ success: false, error: stderr });
+    const manifestData = await javaResponse.json();
 
-    try {
-      const newLog = new AuditLog({
-        assetHash: req.file.filename,
-        clientId,
-        fullManifest: stdout.trim()
-      });
-      await newLog.save();
-
-      res.status(201).json({
-        success: true,
-        manifest: stdout.trim(),
-        downloadPath: req.file.path // Path to the now-certified image
-      });
-    } catch (dbError) {
-      res.status(500).json({ error: dbError.message });
+    if (!javaResponse.ok) {
+      return res.status(500).json({ success: false, error: manifestData.error });
     }
-  });
+
+    // 2. Save the audit log to MongoDB
+    // We convert the JSON manifest into a string for the database
+    const newLog = new AuditLog({
+      assetHash: req.file.filename,
+      clientId,
+      fullManifest: JSON.stringify(manifestData)
+    });
+    await newLog.save();
+
+    // 3. Return success to React
+    res.status(201).json({
+      success: true,
+      manifest: manifestData,
+      downloadPath: req.file.path
+    });
+
+  } catch (error) {
+    console.error("Microservice Connection Error:", error);
+    res.status(500).json({ error: "Failed to connect to the Signing Service. Is the Java server running?" });
+  }
 };
 
-// Fetch history for the logged-in user
+// Fetch history for the logged-in user (remains unchanged)
 exports.getHistory = async (req, res) => {
   try {
-    // Find all logs belonging to this user, sorted by newest first
     const logs = await AuditLog.find({ clientId: req.user.id }).sort({ timestamp: -1 });
     res.json({ success: true, logs });
   } catch (error) {
