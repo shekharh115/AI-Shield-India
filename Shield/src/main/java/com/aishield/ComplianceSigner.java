@@ -1,26 +1,40 @@
 package com.aishield;
 
 import com.aspose.imaging.Image;
+import com.aspose.imaging.RasterImage;
+import com.aspose.imaging.Graphics;
+import com.aspose.imaging.Font;
+import com.aspose.imaging.Color;
+import com.aspose.imaging.brushes.SolidBrush;
 import com.aspose.imaging.xmp.XmpPacketWrapper;
 import com.aspose.imaging.xmp.XmpPackage;
 
 public class ComplianceSigner {
     public static void main(String[] args) {
-        // 1. Guard against empty arguments
         if (args.length < 2) {
             System.err.println("Usage: java -jar shield.jar <imagePath> <clientId>");
             return;
         }
 
-        // 2. Define variables INSIDE the main method
         String imagePath = args[0];
         String clientId = args[1];
 
-        // 3. Start the processing logic
-        try (Image image = Image.load(imagePath)) {
-            XmpPacketWrapper xmpData = new XmpPacketWrapper();
+        // 1. Load and cast to RasterImage to access XMP and Drawing features
+        try (RasterImage image = (RasterImage) Image.load(imagePath)) {
 
-            // MeitY 2026 Legal Schema
+            // 2. Apply Near-Invisible Watermark
+            Graphics graphics = new Graphics(image);
+            Font font = new Font("Arial", 40);
+            SolidBrush brush = new SolidBrush(Color.fromArgb(15, 0, 0, 0)); // 15 Alpha is ~94% transparent
+
+            for (int x = 0; x < image.getWidth(); x += 300) {
+                for (int y = 0; y < image.getHeight(); y += 150) {
+                    graphics.drawString("SECURED: " + clientId, font, brush, x, y);
+                }
+            }
+
+            // 3. Setup XMP Metadata
+            XmpPacketWrapper xmpData = new XmpPacketWrapper();
             XmpPackage meitySchema = new XmpPackage("meity", "http://india.meity.gov.in/rules2026/");
 
             // Aspose uses setProperty for custom tags
@@ -30,14 +44,14 @@ public class ComplianceSigner {
 
             xmpData.addPackage(meitySchema);
 
-            // Inject and save metadata directly to the file
+            // 5. Inject metadata and save
             image.setXmpData(xmpData);
             image.save();
 
             // Manifest output for Node.js
             System.out.println("<certified_manifest>");
             System.out.println("  <status>COMPLIANT</status>");
-            System.out.println("  <info>Metadata Injected Successfully</info>");
+            System.out.println("  <info>Metadata and Watermark Injected Successfully</info>");
             System.out.println("</certified_manifest>");
 
         } catch (Exception e) {
