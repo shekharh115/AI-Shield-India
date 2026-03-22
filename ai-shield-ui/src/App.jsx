@@ -3,10 +3,6 @@ import axios from 'axios';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-// IMPORTANT: Replace this with your actual Google Cloud Storage bucket name
-const GCS_BUCKET_NAME = 'aishield-assets';
-const GCS_BASE_URL = `https://storage.googleapis.com/${GCS_BUCKET_NAME}`;
-
 function App() {
   // 1. Authentication State
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -200,14 +196,14 @@ function App() {
                   Download PDF Certificate 📄
                 </button>
 
-                {/* UPDATED: Directly using the full Google Cloud Storage URL provided by backend */}
+                {/* Uses the secure signed URL provided by backend */}
                 <a
                   href={result.downloadPath}
                   target="_blank"
                   rel="noreferrer"
                   style={{ padding: '12px 24px', backgroundColor: '#0056b3', color: 'white', textDecoration: 'none', borderRadius: '6px', textAlign: 'center' }}
                 >
-                  View Protected Image in Cloud 🖼️
+                  View Protected Image 🖼️
                 </a>
               </div>
             </div>
@@ -253,9 +249,9 @@ function App() {
                       <td style={{ padding: '12px', color: '#333' }}>{displayDate}</td>
 
                       <td style={{ padding: '12px', textAlign: 'center' }}>
-                        {/* UPDATED: Using Google Cloud Storage Base URL */}
+                        {/* Uses the secure signed URL provided by backend */}
                         <img
-                          src={`${GCS_BASE_URL}/${log.assetHash}`}
+                          src={log.signedUrl}
                           alt="Secured Asset"
                           style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #ccc' }}
                         />
@@ -268,9 +264,9 @@ function App() {
                       <td style={{ padding: '12px', color: 'green', fontWeight: 'bold' }}>COMPLIANT ✅</td>
 
                       <td style={{ padding: '12px', textAlign: 'center' }}>
-                        {/* UPDATED: Using Google Cloud Storage Base URL */}
+                        {/* Uses the secure signed URL provided by backend */}
                         <a
-                          href={`${GCS_BASE_URL}/${log.assetHash}`}
+                          href={log.signedUrl}
                           target="_blank"
                           rel="noreferrer"
                           style={{ padding: '8px 12px', backgroundColor: '#28a745', color: 'white', textDecoration: 'none', borderRadius: '4px', fontSize: '14px', display: 'inline-block' }}
