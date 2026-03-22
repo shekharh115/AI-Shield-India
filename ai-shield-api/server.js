@@ -1,31 +1,33 @@
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
+const cors = require('cors');
+const limiter = require('./middleware/rateLimiter');
+const apiKeyAuth = require('./middleware/apiKeyAuth');
+
 const { uploadMiddleware, signAsset, getHistory } = require('./controllers/complianceController');
 const { register, login } = require('./controllers/authController');
 
 const app = express();
-app.use(express.json()); // Parses incoming JSON requests
 
-const cors = require('cors');
-app.use(cors()); // Place this BEFORE your routes
+// Protect the entire server from spam/DDoS
+app.use(limiter);
 
-// Allow the React frontend to download files from the uploads folder
+app.use(express.json());
+app.use(cors());
 app.use('/uploads', express.static('uploads'));
 
-// Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log("✅ Audit Vault Connected"))
     .catch(err => console.error("❌ DB Error:", err));
 
-// Middlewares
 const auth = require('./middleware/auth');
 
-// The Compliance Endpoints
-app.post('/api/v1/sign', auth, uploadMiddleware, signAsset);
-app.get('/api/v1/history', auth, getHistory);
+// Compliance Endpoints: Now requires BOTH a valid JWT and a valid Personal API Key
+app.post('/api/v1/sign', [auth, apiKeyAuth], uploadMiddleware, signAsset);
+app.get('/api/v1/history', [auth, apiKeyAuth], getHistory);
 
-// Authentication Endpoints
+// Auth Endpoints (No API key needed to register or login)
 app.post('/api/v1/register', register);
 app.post('/api/v1/login', login);
 
