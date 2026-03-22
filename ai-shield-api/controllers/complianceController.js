@@ -1,23 +1,31 @@
 const path = require('path');
+const fs = require('fs');
 const multer = require('multer');
+const { Storage } = require('@google-cloud/storage');
 const AuditLog = require('../models/AuditLog');
 
-// Configure storage for uploaded images
-const storage = multer.diskStorage({
+// Initialize Google Cloud Storage Client
+const storageClient = new Storage({
+  keyFilename: path.join(__dirname, '../gcs-key.json'),
+});
+const bucketName = process.env.GCS_BUCKET_NAME;
+
+// Configure local storage TEMPORARILY
+const localStorage = multer.diskStorage({
   destination: 'uploads/',
   filename: (req, file, cb) => {
     cb(null, Date.now() + '-' + file.originalname);
   }
 });
-const upload = multer({ storage: storage });
+const upload = multer({ storage: localStorage });
 
 exports.uploadMiddleware = upload.single('asset');
 
-// Process and sign the asset via the Spring Boot Microservice
 exports.signAsset = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
   const filePath = path.resolve(req.file.path);
+  const filename = req.file.filename;
   const clientId = req.user.id;
 
   try {
@@ -31,37 +39,74 @@ exports.signAsset = async (req, res) => {
     const manifestData = await javaResponse.json();
 
     if (!javaResponse.ok) {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       return res.status(500).json({ success: false, error: manifestData.error });
     }
 
-    // 2. Save the audit log to MongoDB
-    // We convert the JSON manifest into a string for the database
+    // 2. Upload the file to Google Cloud Storage
+    const bucket = storageClient.bucket(bucketName);
+    await bucket.upload(filePath, {
+      destination: filename,
+    });
+
+    // 3. GENERATE A SECURE SIGNED URL (Valid for 15 minutes)
+    const options = {
+      version: 'v4',
+      action: 'read',
+      expires: Date.now() + 15 * 60 * 1000, // 15 mins from now
+    };
+    const [signedUrl] = await bucket.file(filename).getSignedUrl(options);
+
+    // 4. Delete the temporary local file
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    // 5. Save the audit log to MongoDB
     const newLog = new AuditLog({
-      assetHash: req.file.filename,
+      assetHash: filename,
       clientId,
       fullManifest: JSON.stringify(manifestData)
     });
     await newLog.save();
 
-    // 3. Return success to React
+    // 6. Return success to React, passing the temporary Signed URL
     res.status(201).json({
       success: true,
       manifest: manifestData,
-      downloadPath: req.file.path
+      downloadPath: signedUrl
     });
 
   } catch (error) {
-    console.error("Microservice Connection Error:", error);
-    res.status(500).json({ error: "Failed to connect to the Signing Service. Is the Java server running?" });
+    console.error("Microservice/GCS Connection Error:", error);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    res.status(500).json({ error: "Failed to process and upload the asset to cloud." });
   }
 };
 
-// Fetch history for the logged-in user (remains unchanged)
 exports.getHistory = async (req, res) => {
   try {
+    // Fetch logs from MongoDB
     const logs = await AuditLog.find({ clientId: req.user.id }).sort({ timestamp: -1 });
-    res.json({ success: true, logs });
+
+    const bucket = storageClient.bucket(bucketName);
+    const options = {
+      version: 'v4',
+      action: 'read',
+      expires: Date.now() + 15 * 60 * 1000, // 15 mins from now
+    };
+
+    // GENERATE SECURE SIGNED URLS FOR EVERY ITEM IN HISTORY
+    const logsWithSecureUrls = await Promise.all(logs.map(async (log) => {
+      const [signedUrl] = await bucket.file(log.assetHash).getSignedUrl(options);
+
+      // Convert mongoose document to a plain object and attach the secure URL
+      return { ...log.toObject(), signedUrl };
+    }));
+
+    res.json({ success: true, logs: logsWithSecureUrls });
   } catch (error) {
+    console.error("History Error:", error);
     res.status(500).json({ error: "Failed to fetch history" });
   }
 };

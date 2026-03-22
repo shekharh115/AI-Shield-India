@@ -8,6 +8,8 @@
 
 # Environment secrets (MUST BE IGNORED)
 **/.env
+**/gcs-key.json
+
 
 # IDE settings
 .idea/

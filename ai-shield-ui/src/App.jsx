@@ -64,7 +64,6 @@ function App() {
     setLoading(true);
     const formData = new FormData();
     formData.append('asset', file);
-    // Note: clientId is now handled securely on the backend via the token!
 
     try {
       const res = await axios.post('http://localhost:5000/api/v1/sign', formData, {
@@ -93,7 +92,7 @@ function App() {
       startY: 40,
       head: [['Compliance Requirement', 'Verification Details']],
       body: [
-        ['Asset ID', result.assetHash || 'Verified'],
+        ['Asset ID', result.manifest?.assetHash || 'Verified'],
         ['Status', 'FULLY COMPLIANT'],
         ['Standard', 'MeitY IT Rules 2026'],
         ['Date', new Date().toLocaleString()],
@@ -197,14 +196,14 @@ function App() {
                   Download PDF Certificate 📄
                 </button>
 
+                {/* Uses the secure signed URL provided by backend */}
                 <a
-                  href={`http://localhost:5000/${result.downloadPath}`}
-                  download
+                  href={result.downloadPath}
                   target="_blank"
                   rel="noreferrer"
                   style={{ padding: '12px 24px', backgroundColor: '#0056b3', color: 'white', textDecoration: 'none', borderRadius: '6px', textAlign: 'center' }}
                 >
-                  Download Protected Image 🖼️
+                  View Protected Image 🖼️
                 </a>
               </div>
             </div>
@@ -219,81 +218,76 @@ function App() {
           <p style={{ color: '#666', marginBottom: '20px' }}>Showing {historyLogs.length} assets secured.</p>
 
           <div style={{ overflowX: 'auto' }}>
-                     <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white' }}>
-                                   <thead>
-                                     <tr style={{ backgroundColor: '#0056b3', color: 'white', textAlign: 'left' }}>
-                                       <th style={{ padding: '12px', border: '1px solid #ddd' }}>Date Secured</th>
-                                       <th style={{ padding: '12px', border: '1px solid #ddd' }}>Asset Preview</th>
-                                       <th style={{ padding: '12px', border: '1px solid #ddd' }}>Asset Name</th>
-                                       <th style={{ padding: '12px', border: '1px solid #ddd' }}>Status</th>
-                                       {/* NEW: Column for the Download action */}
-                                       <th style={{ padding: '12px', border: '1px solid #ddd', textAlign: 'center' }}>Action</th>
-                                     </tr>
-                                   </thead>
-                                   <tbody>
-                                     {historyLogs.map(log => {
+            <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#0056b3', color: 'white', textAlign: 'left' }}>
+                  <th style={{ padding: '12px', border: '1px solid #ddd' }}>Date Secured</th>
+                  <th style={{ padding: '12px', border: '1px solid #ddd' }}>Asset Preview</th>
+                  <th style={{ padding: '12px', border: '1px solid #ddd' }}>Asset Name</th>
+                  <th style={{ padding: '12px', border: '1px solid #ddd' }}>Status</th>
+                  <th style={{ padding: '12px', border: '1px solid #ddd', textAlign: 'center' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historyLogs.map(log => {
 
-                                       // 1. ROBUST DATE FALLBACK LOGIC
-                                       let displayDate = "Unknown Date";
-                                       if (log.timestamp) {
-                                         const dbDate = new Date(log.timestamp);
-                                         if (!isNaN(dbDate.getTime())) displayDate = dbDate.toLocaleString();
-                                       } else if (log.assetHash && log.assetHash.includes('-')) {
-                                         const extractedTime = parseInt(log.assetHash.split('-')[0]);
-                                         if (!isNaN(extractedTime)) displayDate = new Date(extractedTime).toLocaleString();
-                                       }
+                  let displayDate = "Unknown Date";
+                  if (log.timestamp) {
+                    const dbDate = new Date(log.timestamp);
+                    if (!isNaN(dbDate.getTime())) displayDate = dbDate.toLocaleString();
+                  } else if (log.assetHash && log.assetHash.includes('-')) {
+                    const extractedTime = parseInt(log.assetHash.split('-')[0]);
+                    if (!isNaN(extractedTime)) displayDate = new Date(extractedTime).toLocaleString();
+                  }
 
-                                       // 2. SAFE NAME CLEANUP
-                                       const cleanName = log.assetHash.includes('-')
-                                         ? log.assetHash.substring(log.assetHash.indexOf('-') + 1)
-                                         : log.assetHash;
+                  const cleanName = log.assetHash.includes('-')
+                    ? log.assetHash.substring(log.assetHash.indexOf('-') + 1)
+                    : log.assetHash;
 
-                                       return (
-                                         <tr key={log._id} style={{ borderBottom: '1px solid #ddd', verticalAlign: 'middle' }}>
+                  return (
+                    <tr key={log._id} style={{ borderBottom: '1px solid #ddd', verticalAlign: 'middle' }}>
+                      <td style={{ padding: '12px', color: '#333' }}>{displayDate}</td>
 
-                                           {/* Fixed Date Display */}
-                                           <td style={{ padding: '12px', color: '#333' }}>{displayDate}</td>
+                      <td style={{ padding: '12px', textAlign: 'center' }}>
+                        {/* Uses the secure signed URL provided by backend */}
+                        <img
+                          src={log.signedUrl}
+                          alt="Secured Asset"
+                          style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #ccc' }}
+                        />
+                      </td>
 
-                                           <td style={{ padding: '12px', textAlign: 'center' }}>
-                                             <img
-                                               src={`http://localhost:5000/uploads/${log.assetHash}`}
-                                               alt="Secured Asset"
-                                               style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #ccc' }}
-                                             />
-                                           </td>
+                      <td style={{ padding: '12px', wordBreak: 'break-all', fontWeight: '500', color: '#333' }}>
+                        {cleanName}
+                      </td>
 
-                                           <td style={{ padding: '12px', wordBreak: 'break-all', fontWeight: '500', color: '#333' }}>
-                                             {cleanName}
-                                           </td>
+                      <td style={{ padding: '12px', color: 'green', fontWeight: 'bold' }}>COMPLIANT ✅</td>
 
-                                           <td style={{ padding: '12px', color: 'green', fontWeight: 'bold' }}>COMPLIANT ✅</td>
+                      <td style={{ padding: '12px', textAlign: 'center' }}>
+                        {/* Uses the secure signed URL provided by backend */}
+                        <a
+                          href={log.signedUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ padding: '8px 12px', backgroundColor: '#28a745', color: 'white', textDecoration: 'none', borderRadius: '4px', fontSize: '14px', display: 'inline-block' }}
+                        >
+                          ⬇️ View / Download
+                        </a>
+                      </td>
 
-                                           {/* NEW: The Download Button */}
-                                           <td style={{ padding: '12px', textAlign: 'center' }}>
-                                             <a
-                                               href={`http://localhost:5000/uploads/${log.assetHash}`}
-                                               download
-                                               target="_blank"
-                                               rel="noreferrer"
-                                               style={{ padding: '8px 12px', backgroundColor: '#28a745', color: 'white', textDecoration: 'none', borderRadius: '4px', fontSize: '14px', display: 'inline-block' }}
-                                             >
-                                               ⬇️ Download
-                                             </a>
-                                           </td>
-
-                                         </tr>
-                                       );
-                                     })}
-                                     {historyLogs.length === 0 && (
-                                       <tr>
-                                         <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#888' }}>
-                                           No history found. Go secure some assets!
-                                         </td>
-                                       </tr>
-                                     )}
-                                   </tbody>
-                                 </table>
-                    </div>
+                    </tr>
+                  );
+                })}
+                {historyLogs.length === 0 && (
+                  <tr>
+                    <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#888' }}>
+                      No history found. Go secure some assets!
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
