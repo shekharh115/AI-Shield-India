@@ -3,21 +3,14 @@ const fs = require('fs');
 const multer = require('multer');
 const { Storage } = require('@google-cloud/storage');
 const AuditLog = require('../models/AuditLog');
-const FormData = require('form-data'); // Ensure you have form-data installed
+const FormData = require('form-data');
 
 const storageClient = new Storage({
   keyFilename: path.join(__dirname, '../gcs-key.json'),
 });
 const bucketName = process.env.GCS_BUCKET_NAME;
 
-const localStorage = multer.diskStorage({
-  destination: 'uploads/',
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + '-' + file.originalname);
-  }
-});
-const upload = multer({ storage: localStorage });
-
+const upload = multer({ dest: 'uploads/' });
 exports.uploadMiddleware = upload.single('asset');
 
 exports.signAsset = async (req, res) => {
@@ -25,50 +18,50 @@ exports.signAsset = async (req, res) => {
 
   const filePath = path.resolve(req.file.path);
   const filename = req.file.filename;
+  const originalName = req.file.originalname;
   const clientId = req.user.id;
 
   try {
-    // 1. Prepare Multipart Form Data to send the actual file to Java
+    // 1. Use FormData properly
     const form = new FormData();
-    form.append('file', fs.createReadStream(filePath));
+    // Use fs.createReadStream to pipe the file without loading it all into memory
+    form.append('file', fs.createReadStream(filePath), {
+        filename: originalName,
+        contentType: req.file.mimetype,
+    });
     form.append('clientId', clientId);
 
+    // 2. Send to Java
     const javaResponse = await fetch(`${process.env.BASE_URL}/api/sign-local`, {
       method: 'POST',
       body: form,
-      headers: form.getHeaders(),
+      headers: form.getHeaders(), // Let FormData generate the boundary
     });
 
     if (!javaResponse.ok) {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      return res.status(500).json({ success: false, error: "Java service failed to process image" });
+        const errorText = await javaResponse.text();
+        throw new Error(`Java service failed: ${errorText}`);
     }
 
-    // Get the processed image data and metadata from headers
-    const processedImageBuffer = Buffer.from(await javaResponse.arrayBuffer());
+    // 3. Receive the watermarked image back
+    const arrayBuffer = await javaResponse.arrayBuffer();
+    const processedBuffer = Buffer.from(arrayBuffer);
     const xmpPayload = javaResponse.headers.get('X-XMP-Payload');
 
-    // Overwrite the local file with the watermarked version from Java
-    fs.writeFileSync(filePath, processedImageBuffer);
+    // Overwrite the local file with the processed version
+    fs.writeFileSync(filePath, processedBuffer);
 
-    // 2. Upload the watermarked file to Google Cloud Storage
+    // 4. Upload to Cloud
     const bucket = storageClient.bucket(bucketName);
-    await bucket.upload(filePath, {
-      destination: filename,
-    });
+    await bucket.upload(filePath, { destination: filename });
 
-    // 3. Generate Signed URL
-    const options = {
-      version: 'v4',
-      action: 'read',
-      expires: Date.now() + 15 * 60 * 1000,
-    };
+    const options = { version: 'v4', action: 'read', expires: Date.now() + 15 * 60 * 1000 };
     const [signedUrl] = await bucket.file(filename).getSignedUrl(options);
 
-    // 4. Delete temp file
+    // Clean up local temp file
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
-    // 5. Save audit log
+    // 5. Audit Log
     const manifestData = { status: "COMPLIANT", xmp_payload: xmpPayload };
     const newLog = new AuditLog({
       assetHash: filename,
@@ -77,32 +70,32 @@ exports.signAsset = async (req, res) => {
     });
     await newLog.save();
 
-    res.status(201).json({
-      success: true,
-      manifest: manifestData,
-      downloadPath: signedUrl
-    });
+    res.status(201).json({ success: true, manifest: manifestData, downloadPath: signedUrl });
 
   } catch (error) {
-    console.error("Processing Error:", error);
+    console.error("Pipeline Error:", error);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    res.status(500).json({ error: "Failed to process and upload the asset." });
+    res.status(500).json({ error: error.message || "Failed to process asset" });
   }
 };
 
 exports.getHistory = async (req, res) => {
-  try {
-    const logs = await AuditLog.find({ clientId: req.user.id }).sort({ timestamp: -1 });
-    const bucket = storageClient.bucket(bucketName);
-    const options = { version: 'v4', action: 'read', expires: Date.now() + 15 * 60 * 1000 };
+    try {
+      const logs = await AuditLog.find({ clientId: req.user.id }).sort({ timestamp: -1 });
+      const bucket = storageClient.bucket(bucketName);
+      const options = { version: 'v4', action: 'read', expires: Date.now() + 15 * 60 * 1000 };
 
-    const logsWithSecureUrls = await Promise.all(logs.map(async (log) => {
-      const [signedUrl] = await bucket.file(log.assetHash).getSignedUrl(options);
-      return { ...log.toObject(), signedUrl };
-    }));
+      const logsWithSecureUrls = await Promise.all(logs.map(async (log) => {
+        try {
+            const [signedUrl] = await bucket.file(log.assetHash).getSignedUrl(options);
+            return { ...log.toObject(), signedUrl };
+        } catch (e) {
+            return { ...log.toObject(), signedUrl: null };
+        }
+      }));
 
-    res.json({ success: true, logs: logsWithSecureUrls });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to fetch history" });
-  }
-};
+      res.json({ success: true, logs: logsWithSecureUrls });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch history" });
+    }
+  };

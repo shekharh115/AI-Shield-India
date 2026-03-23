@@ -30,28 +30,34 @@ public class AiShieldApplication {
         SpringApplication.run(AiShieldApplication.class, args);
     }
 
-    // Change: Now accepts MultipartFile and clientId as a RequestParam
     @PostMapping(value = "/api/sign-local", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<byte[]> signAsset(
+    public ResponseEntity<?> signAsset(
             @RequestParam("file") MultipartFile file,
             @RequestParam("clientId") String clientId) {
 
-        try {
-            log.info("Received signing request for file: {} from client: {}", file.getOriginalFilename(), clientId);
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest().body("File is empty");
+        }
 
-            // Read the image from the uploaded stream
+        try {
+            log.info("Processing file: {} ({} bytes) for client: {}",
+                    file.getOriginalFilename(), file.getSize(), clientId);
+
+            // Read the image
             BufferedImage image = ImageIO.read(file.getInputStream());
 
+            // CRITICAL: Check if image is null BEFORE using it
             if (image == null) {
-                return ResponseEntity.badRequest().build();
+                log.error("ImageIO could not decode the file format for: {}", file.getOriginalFilename());
+                return ResponseEntity.status(415).body("Unsupported or corrupt image format");
             }
 
-            // 1. Apply Near-Invisible Watermark
+            // 1. Apply Watermark
             Graphics2D g2d = (Graphics2D) image.getGraphics();
-            AlphaComposite alphaChannel = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.06f);
+            AlphaComposite alphaChannel = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.1f);
             g2d.setComposite(alphaChannel);
-            g2d.setColor(Color.BLACK);
-            g2d.setFont(new Font("Arial", Font.BOLD, 40));
+            g2d.setColor(Color.GRAY);
+            g2d.setFont(new Font("Arial", Font.BOLD, 30));
 
             for (int x = 0; x < image.getWidth(); x += 300) {
                 for (int y = 0; y < image.getHeight(); y += 150) {
@@ -60,27 +66,27 @@ public class AiShieldApplication {
             }
             g2d.dispose();
 
-            // 2. Generate XMP Metadata (Logic remains same)
+            // 2. Generate Metadata
             String xmpPacket = generateMeityXMP(clientId);
 
-            // 3. Convert modified image to Byte Array to send back to Node.js
-            String contentType = file.getContentType();
-            String formatName = (contentType != null && contentType.contains("png")) ? "png" : "jpg";
+            // 3. Convert to Bytes
+            String format = "png"; // Default to PNG for better compatibility
+            if (file.getContentType() != null && file.getContentType().contains("jpeg")) {
+                format = "jpg";
+            }
 
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            ImageIO.write(image, formatName, baos);
+            ImageIO.write(image, format, baos);
             byte[] imageBytes = baos.toByteArray();
 
-            // 4. Return the processed image bytes
-            // Note: We send the image back. Node.js will handle the Manifest logging.
             return ResponseEntity.ok()
-                    .contentType(MediaType.parseMediaType(contentType))
-                    .header("X-XMP-Payload", xmpPacket) // Send metadata in header
+                    .contentType(MediaType.parseMediaType(file.getContentType()))
+                    .header("X-XMP-Payload", xmpPacket)
                     .body(imageBytes);
 
         } catch (Exception e) {
-            log.error("Error processing image", e);
-            return ResponseEntity.internalServerError().build();
+            log.error("Internal Error: ", e);
+            return ResponseEntity.internalServerError().body("Error: " + e.getMessage());
         }
     }
 
