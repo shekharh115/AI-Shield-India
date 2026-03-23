@@ -30,7 +30,7 @@ exports.signAsset = async (req, res) => {
 
   try {
     // 1. Send HTTP request to the running Spring Boot service
-    const javaResponse = await fetch('http://localhost:8080/api/sign-local', {
+    const javaResponse = await fetch(`${process.env.BASE_URL}/api/sign-local`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filePath, clientId })
