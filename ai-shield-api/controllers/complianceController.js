@@ -38,6 +38,8 @@ exports.signAsset = async (req, res) => {
 
     const manifestData = await javaResponse.json();
 
+    console.log("Java Service Response:", manifestData + `${process.env.BASE_URL);
+
     if (!javaResponse.ok) {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       return res.status(500).json({ success: false, error: manifestData.error });
