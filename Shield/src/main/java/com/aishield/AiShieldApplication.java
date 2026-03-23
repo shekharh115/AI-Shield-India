@@ -3,6 +3,8 @@ package com.aishield;
 import com.adobe.xmp.XMPException;
 import com.adobe.xmp.XMPMeta;
 import com.adobe.xmp.XMPMetaFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.http.ResponseEntity;
@@ -22,6 +24,8 @@ import java.util.HashMap;
 @RestController
 public class AiShieldApplication {
 
+    private static final Logger log = LoggerFactory.getLogger(AiShieldApplication.class);
+
     public static void main(String[] args) {
         // Starts the Spring Boot HTTP Server on port 8080 by default
         SpringApplication.run(AiShieldApplication.class, args);
@@ -38,6 +42,7 @@ public class AiShieldApplication {
         Map<String, String> response = new HashMap<>();
 
         try {
+            log.info("Received signing request for file: {} from client: {}", request.filePath, request.clientId);
             File imageFile = new File(request.filePath);
             BufferedImage image = ImageIO.read(imageFile);
 
