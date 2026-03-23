@@ -7,15 +7,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.io.File;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Map;
 import java.util.HashMap;
@@ -27,28 +27,23 @@ public class AiShieldApplication {
     private static final Logger log = LoggerFactory.getLogger(AiShieldApplication.class);
 
     public static void main(String[] args) {
-        // Starts the Spring Boot HTTP Server on port 8080 by default
         SpringApplication.run(AiShieldApplication.class, args);
     }
 
-    // This class maps the incoming JSON from Node.js
-    public static class SignRequest {
-        public String filePath;
-        public String clientId;
-    }
-
-    @PostMapping("/api/sign-local")
-    public ResponseEntity<Map<String, String>> signAsset(@RequestBody SignRequest request) {
-        Map<String, String> response = new HashMap<>();
+    // Change: Now accepts MultipartFile and clientId as a RequestParam
+    @PostMapping(value = "/api/sign-local", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<byte[]> signAsset(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("clientId") String clientId) {
 
         try {
-            log.info("Received signing request for file: {} from client: {}", request.filePath, request.clientId);
-            File imageFile = new File(request.filePath);
-            BufferedImage image = ImageIO.read(imageFile);
+            log.info("Received signing request for file: {} from client: {}", file.getOriginalFilename(), clientId);
+
+            // Read the image from the uploaded stream
+            BufferedImage image = ImageIO.read(file.getInputStream());
 
             if (image == null) {
-                response.put("error", "Unsupported image format");
-                return ResponseEntity.badRequest().body(response);
+                return ResponseEntity.badRequest().build();
             }
 
             // 1. Apply Near-Invisible Watermark
@@ -60,28 +55,32 @@ public class AiShieldApplication {
 
             for (int x = 0; x < image.getWidth(); x += 300) {
                 for (int y = 0; y < image.getHeight(); y += 150) {
-                    g2d.drawString("SECURED: " + request.clientId, x, y);
+                    g2d.drawString("SECURED: " + clientId, x, y);
                 }
             }
             g2d.dispose();
 
-            // 2. Generate XMP Metadata Packet
-            String xmpPacket = generateMeityXMP(request.clientId);
+            // 2. Generate XMP Metadata (Logic remains same)
+            String xmpPacket = generateMeityXMP(clientId);
 
-            // 3. Save the modified image back to disk
-            String extension = request.filePath.substring(request.filePath.lastIndexOf('.') + 1);
-            ImageIO.write(image, extension, imageFile);
+            // 3. Convert modified image to Byte Array to send back to Node.js
+            String contentType = file.getContentType();
+            String formatName = (contentType != null && contentType.contains("png")) ? "png" : "jpg";
 
-            // 4. Return success manifest as JSON
-            response.put("status", "COMPLIANT");
-            response.put("info", "Visual Watermark Applied Successfully");
-            response.put("xmp_payload", xmpPacket);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ImageIO.write(image, formatName, baos);
+            byte[] imageBytes = baos.toByteArray();
 
-            return ResponseEntity.ok(response);
+            // 4. Return the processed image bytes
+            // Note: We send the image back. Node.js will handle the Manifest logging.
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(contentType))
+                    .header("X-XMP-Payload", xmpPacket) // Send metadata in header
+                    .body(imageBytes);
 
         } catch (Exception e) {
-            response.put("error", e.getMessage());
-            return ResponseEntity.internalServerError().body(response);
+            log.error("Error processing image", e);
+            return ResponseEntity.internalServerError().build();
         }
     }
 

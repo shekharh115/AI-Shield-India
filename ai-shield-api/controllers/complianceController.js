@@ -3,14 +3,13 @@ const fs = require('fs');
 const multer = require('multer');
 const { Storage } = require('@google-cloud/storage');
 const AuditLog = require('../models/AuditLog');
+const FormData = require('form-data'); // Ensure you have form-data installed
 
-// Initialize Google Cloud Storage Client
 const storageClient = new Storage({
   keyFilename: path.join(__dirname, '../gcs-key.json'),
 });
 const bucketName = process.env.GCS_BUCKET_NAME;
 
-// Configure local storage TEMPORARILY
 const localStorage = multer.diskStorage({
   destination: 'uploads/',
   filename: (req, file, cb) => {
@@ -29,44 +28,48 @@ exports.signAsset = async (req, res) => {
   const clientId = req.user.id;
 
   try {
-    // 1. Send HTTP request to the running Spring Boot service
-    const url = `${process.env.BASE_URL}/api/sign-local`;
-    console.log('######', url);
+    // 1. Prepare Multipart Form Data to send the actual file to Java
+    const form = new FormData();
+    form.append('file', fs.createReadStream(filePath));
+    form.append('clientId', clientId);
+
     const javaResponse = await fetch(`${process.env.BASE_URL}/api/sign-local`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath, clientId })
+      body: form,
+      headers: form.getHeaders(),
     });
-
-    const manifestData = await javaResponse.json();
-
-    console.log("Java Service Response:", manifestData );
 
     if (!javaResponse.ok) {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      return res.status(500).json({ success: false, error: manifestData.error });
+      return res.status(500).json({ success: false, error: "Java service failed to process image" });
     }
 
-    // 2. Upload the file to Google Cloud Storage
+    // Get the processed image data and metadata from headers
+    const processedImageBuffer = Buffer.from(await javaResponse.arrayBuffer());
+    const xmpPayload = javaResponse.headers.get('X-XMP-Payload');
+
+    // Overwrite the local file with the watermarked version from Java
+    fs.writeFileSync(filePath, processedImageBuffer);
+
+    // 2. Upload the watermarked file to Google Cloud Storage
     const bucket = storageClient.bucket(bucketName);
     await bucket.upload(filePath, {
       destination: filename,
     });
 
-    // 3. GENERATE A SECURE SIGNED URL (Valid for 15 minutes)
+    // 3. Generate Signed URL
     const options = {
       version: 'v4',
       action: 'read',
-      expires: Date.now() + 15 * 60 * 1000, // 15 mins from now
+      expires: Date.now() + 15 * 60 * 1000,
     };
     const [signedUrl] = await bucket.file(filename).getSignedUrl(options);
 
-    // 4. Delete the temporary local file
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    // 4. Delete temp file
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
-    // 5. Save the audit log to MongoDB
+    // 5. Save audit log
+    const manifestData = { status: "COMPLIANT", xmp_payload: xmpPayload };
     const newLog = new AuditLog({
       assetHash: filename,
       clientId,
@@ -74,7 +77,6 @@ exports.signAsset = async (req, res) => {
     });
     await newLog.save();
 
-    // 6. Return success to React, passing the temporary Signed URL
     res.status(201).json({
       success: true,
       manifest: manifestData,
@@ -82,35 +84,25 @@ exports.signAsset = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Microservice/GCS Connection Error:", error);
+    console.error("Processing Error:", error);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    res.status(500).json({ error: "Failed to process and upload the asset to cloud." });
+    res.status(500).json({ error: "Failed to process and upload the asset." });
   }
 };
 
 exports.getHistory = async (req, res) => {
   try {
-    // Fetch logs from MongoDB
     const logs = await AuditLog.find({ clientId: req.user.id }).sort({ timestamp: -1 });
-
     const bucket = storageClient.bucket(bucketName);
-    const options = {
-      version: 'v4',
-      action: 'read',
-      expires: Date.now() + 15 * 60 * 1000, // 15 mins from now
-    };
+    const options = { version: 'v4', action: 'read', expires: Date.now() + 15 * 60 * 1000 };
 
-    // GENERATE SECURE SIGNED URLS FOR EVERY ITEM IN HISTORY
     const logsWithSecureUrls = await Promise.all(logs.map(async (log) => {
       const [signedUrl] = await bucket.file(log.assetHash).getSignedUrl(options);
-
-      // Convert mongoose document to a plain object and attach the secure URL
       return { ...log.toObject(), signedUrl };
     }));
 
     res.json({ success: true, logs: logsWithSecureUrls });
   } catch (error) {
-    console.error("History Error:", error);
     res.status(500).json({ error: "Failed to fetch history" });
   }
 };
