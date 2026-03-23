@@ -34,7 +34,7 @@ function App() {
   // Fetch history when the user clicks the History tab
   const fetchHistory = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/v1/history', {
+      const res = await axios.get('https://ai-shield-india.onrender.com/api/v1/history', {
         headers: {
           'x-auth-token': token,
           'x-api-key': apiKey // Required for per-user rate limiting
@@ -56,7 +56,7 @@ function App() {
     e.preventDefault();
     const endpoint = isLoginView ? '/api/v1/login' : '/api/v1/register';
     try {
-      const res = await axios.post(`http://localhost:5000${endpoint}`, authFormData);
+      const res = await axios.post(`https://ai-shield-india.onrender.com${endpoint}`, authFormData);
       setToken(res.data.token);
       setApiKey(res.data.apiKey); // Capture unique key from backend
       alert(isLoginView ? "Login Successful!" : "Account Created!");
@@ -74,7 +74,7 @@ function App() {
     formData.append('asset', file);
 
     try {
-      const res = await axios.post('http://localhost:5000/api/v1/sign', formData, {
+      const res = await axios.post('https://ai-shield-india.onrender.com/api/v1/sign', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           'x-auth-token': token,
