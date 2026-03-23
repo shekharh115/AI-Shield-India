@@ -37,7 +37,7 @@ exports.signAsset = async (req, res) => {
     form.append('clientId', clientId);
 
     // 2. Send request to the Java microservice
-    const javaResponse = await fetch('http://localhost:8080/api/sign-local', {
+    const javaResponse = await fetch(`${process.env.BASE_URL}/api/sign-local`, {
       method: 'POST',
       body: form,
       headers: form.getHeaders(),
