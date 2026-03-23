@@ -5,48 +5,44 @@ import com.adobe.xmp.XMPMeta;
 import com.adobe.xmp.XMPMetaFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.io.File;
-import java.io.IOException;
-import java.util.Map;
+import java.io.ByteArrayOutputStream;
+import java.util.Base64;
 import java.util.HashMap;
+import java.util.Map;
 
 @SpringBootApplication
 @RestController
 public class AiShieldApplication {
 
     public static void main(String[] args) {
-        // Starts the Spring Boot HTTP Server on port 8080 by default
         SpringApplication.run(AiShieldApplication.class, args);
     }
 
-    // This class maps the incoming JSON from Node.js
-    public static class SignRequest {
-        public String filePath;
-        public String clientId;
-    }
-
     @PostMapping("/api/sign-local")
-    public ResponseEntity<Map<String, String>> signAsset(@RequestBody SignRequest request) {
-        Map<String, String> response = new HashMap<>();
+    public ResponseEntity<byte[]> signAsset(
+            @RequestParam("asset") MultipartFile file,
+            @RequestParam("clientId") String clientId) {
 
         try {
-            File imageFile = new File(request.filePath);
-            BufferedImage image = ImageIO.read(imageFile);
+            // 1. Read image from the uploaded multipart stream
+            BufferedImage image = ImageIO.read(file.getInputStream());
 
             if (image == null) {
-                response.put("error", "Unsupported image format");
-                return ResponseEntity.badRequest().body(response);
+                return ResponseEntity.badRequest().build();
             }
 
-            // 1. Apply Near-Invisible Watermark
+            // 2. Apply Near-Invisible Watermark
             Graphics2D g2d = (Graphics2D) image.getGraphics();
             AlphaComposite alphaChannel = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.06f);
             g2d.setComposite(alphaChannel);
@@ -55,28 +51,39 @@ public class AiShieldApplication {
 
             for (int x = 0; x < image.getWidth(); x += 300) {
                 for (int y = 0; y < image.getHeight(); y += 150) {
-                    g2d.drawString("SECURED: " + request.clientId, x, y);
+                    g2d.drawString("SECURED: " + clientId, x, y);
                 }
             }
             g2d.dispose();
 
-            // 2. Generate XMP Metadata Packet
-            String xmpPacket = generateMeityXMP(request.clientId);
+            // 3. Generate XMP Metadata and Encode to Base64
+            // This prevents the Unicode BOM error in HTTP headers
+            String xmpPacket = generateMeityXMP(clientId);
+            String encodedXmp = Base64.getEncoder().encodeToString(xmpPacket.getBytes());
 
-            // 3. Save the modified image back to disk
-            String extension = request.filePath.substring(request.filePath.lastIndexOf('.') + 1);
-            ImageIO.write(image, extension, imageFile);
+            // 4. Convert modified image to byte array
+            String originalName = file.getOriginalFilename();
+            String extension = "png";
+            if (originalName != null && originalName.contains(".")) {
+                extension = originalName.substring(originalName.lastIndexOf('.') + 1);
+            }
 
-            // 4. Return success manifest as JSON
-            response.put("status", "COMPLIANT");
-            response.put("info", "Visual Watermark Applied Successfully");
-            response.put("xmp_payload", xmpPacket);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ImageIO.write(image, extension, baos);
+            byte[] imageBytes = baos.toByteArray();
 
-            return ResponseEntity.ok(response);
+            // 5. Return the image bytes and include encoded XMP in the headers
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.parseMediaType(file.getContentType()));
+            headers.add("X-XMP-Payload", encodedXmp);
+
+            return ResponseEntity.ok()
+                    .headers(headers)
+                    .body(imageBytes);
 
         } catch (Exception e) {
-            response.put("error", e.getMessage());
-            return ResponseEntity.internalServerError().body(response);
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
         }
     }
 
