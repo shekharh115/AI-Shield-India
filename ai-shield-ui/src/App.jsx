@@ -6,6 +6,7 @@ import autoTable from 'jspdf-autotable';
 function App() {
   // 1. Authentication State
   const [token, setToken] = useState(localStorage.getItem('token'));
+  const [apiKey, setApiKey] = useState(localStorage.getItem('apiKey')); // Restored from logic
   const [isLoginView, setIsLoginView] = useState(true);
   const [authFormData, setAuthFormData] = useState({ name: '', email: '', password: '' });
 
@@ -17,21 +18,27 @@ function App() {
   // 3. Dashboard View State
   const [viewTab, setViewTab] = useState('upload'); // 'upload' or 'history'
   const [historyLogs, setHistoryLogs] = useState([]);
+  const [copied, setCopied] = useState(false); // Feedback for the copy button
 
-  // Sync token with localStorage whenever it changes
+  // Sync token and apiKey with localStorage whenever it changes
   useEffect(() => {
-    if (token) {
+    if (token && apiKey) {
       localStorage.setItem('token', token);
+      localStorage.setItem('apiKey', apiKey);
     } else {
       localStorage.removeItem('token');
+      localStorage.removeItem('apiKey');
     }
-  }, [token]);
+  }, [token, apiKey]);
 
   // Fetch history when the user clicks the History tab
   const fetchHistory = async () => {
     try {
       const res = await axios.get('http://localhost:5000/api/v1/history', {
-        headers: { 'x-auth-token': token }
+        headers: {
+          'x-auth-token': token,
+          'x-api-key': apiKey // Required for per-user rate limiting
+        }
       });
       setHistoryLogs(res.data.logs);
     } catch (err) {
@@ -51,6 +58,7 @@ function App() {
     try {
       const res = await axios.post(`http://localhost:5000${endpoint}`, authFormData);
       setToken(res.data.token);
+      setApiKey(res.data.apiKey); // Capture unique key from backend
       alert(isLoginView ? "Login Successful!" : "Account Created!");
     } catch (err) {
       alert(err.response?.data?.msg || "Authentication Failed");
@@ -69,7 +77,8 @@ function App() {
       const res = await axios.post('http://localhost:5000/api/v1/sign', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-          'x-auth-token': token
+          'x-auth-token': token,
+          'x-api-key': apiKey // Required for per-user validation
         }
       });
       setResult(res.data);
@@ -81,28 +90,46 @@ function App() {
     }
   };
 
-  const downloadCertificate = () => {
-    if (!result) return;
-    const doc = new jsPDF();
-    doc.setFontSize(22);
-    doc.setTextColor(0, 86, 179);
-    doc.text("AI-Shield India Compliance", 14, 20);
-
-    autoTable(doc, {
-      startY: 40,
-      head: [['Compliance Requirement', 'Verification Details']],
-      body: [
-        ['Asset ID', result.manifest?.assetHash || 'Verified'],
-        ['Status', 'FULLY COMPLIANT'],
-        ['Standard', 'MeitY IT Rules 2026'],
-        ['Date', new Date().toLocaleString()],
-      ],
-      theme: 'striped',
-      headStyles: { fillColor: [0, 86, 179] },
-    });
-    doc.save(`Certificate_${Date.now()}.pdf`);
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(apiKey);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
+ const downloadCertificate = () => {
+     if (!result) return;
+     const doc = new jsPDF();
+
+     // 1. Setup Header
+     doc.setFontSize(22);
+     doc.setTextColor(0, 86, 179);
+     doc.text("AI-Shield India Compliance", 14, 20);
+
+     // 2. Identify Unique Details
+     // The backend uses 'assetHash' for the filename and 'status' in the manifest
+     const cleanFileName = file ? file.name : "Protected_Asset";
+
+     // Use the downloadPath to extract the unique server filename if manifest hash is missing
+     const uniqueServerID = result.downloadPath
+       ? result.downloadPath.split('?')[0].split('/').pop()
+       : "ID_" + Date.now();
+
+     autoTable(doc, {
+       startY: 40,
+       head: [['Compliance Requirement', 'Verification Details']],
+       body: [
+         ['Asset Name', cleanFileName],
+         ['Unique Asset ID', uniqueServerID], // Fixed: This will now show the unique timestamped ID
+         ['Compliance Status', result.manifest?.status || 'COMPLIANT'],
+         ['Standard', 'MeitY IT Rules 2026'],
+         ['Date of Issue', new Date().toLocaleString()],
+       ],
+       theme: 'striped',
+       headStyles: { fillColor: [0, 86, 179] },
+     });
+
+     doc.save(`Certificate_${cleanFileName.replace(/\.[^/.]+$/, "")}.pdf`);
+   };
   // UI FOR LOGIN / REGISTER
   if (!token) {
     return (
@@ -146,7 +173,16 @@ function App() {
   return (
     <div style={{ padding: '40px', maxWidth: '800px', margin: 'auto', fontFamily: 'sans-serif' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #0056b3', marginBottom: '30px', paddingBottom: '10px' }}>
-        <h1 style={{ color: '#0056b3', margin: 0 }}>AI-Shield Portal</h1>
+        <div>
+          <h1 style={{ color: '#0056b3', margin: 0 }}>AI-Shield Portal</h1>
+          {/* Added only the API Key display and copy button below the title */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
+            <p style={{ margin: 0, fontSize: '12px', color: '#666' }}>Key: <code>{apiKey}</code></p>
+            <button onClick={copyToClipboard} style={{ fontSize: '10px', cursor: 'pointer', background: 'none', border: '1px solid #ccc', borderRadius: '4px' }}>
+              {copied ? '✅' : '📋 Copy'}
+            </button>
+          </div>
+        </div>
         <div>
           <button onClick={() => setViewTab('upload')} style={{ background: 'none', border: 'none', fontSize: '16px', marginRight: '15px', cursor: 'pointer', fontWeight: viewTab === 'upload' ? 'bold' : 'normal', color: viewTab === 'upload' ? '#0056b3' : '#333' }}>
             Upload Asset
@@ -195,8 +231,6 @@ function App() {
                 <button onClick={downloadCertificate} style={{ padding: '12px 24px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
                   Download PDF Certificate 📄
                 </button>
-
-                {/* Uses the secure signed URL provided by backend */}
                 <a
                   href={result.downloadPath}
                   target="_blank"
@@ -230,16 +264,7 @@ function App() {
               </thead>
               <tbody>
                 {historyLogs.map(log => {
-
-                  let displayDate = "Unknown Date";
-                  if (log.timestamp) {
-                    const dbDate = new Date(log.timestamp);
-                    if (!isNaN(dbDate.getTime())) displayDate = dbDate.toLocaleString();
-                  } else if (log.assetHash && log.assetHash.includes('-')) {
-                    const extractedTime = parseInt(log.assetHash.split('-')[0]);
-                    if (!isNaN(extractedTime)) displayDate = new Date(extractedTime).toLocaleString();
-                  }
-
+                  const displayDate = log.timestamp ? new Date(log.timestamp).toLocaleString() : "Unknown";
                   const cleanName = log.assetHash.includes('-')
                     ? log.assetHash.substring(log.assetHash.indexOf('-') + 1)
                     : log.assetHash;
@@ -247,24 +272,16 @@ function App() {
                   return (
                     <tr key={log._id} style={{ borderBottom: '1px solid #ddd', verticalAlign: 'middle' }}>
                       <td style={{ padding: '12px', color: '#333' }}>{displayDate}</td>
-
                       <td style={{ padding: '12px', textAlign: 'center' }}>
-                        {/* Uses the secure signed URL provided by backend */}
                         <img
                           src={log.signedUrl}
                           alt="Secured Asset"
                           style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #ccc' }}
                         />
                       </td>
-
-                      <td style={{ padding: '12px', wordBreak: 'break-all', fontWeight: '500', color: '#333' }}>
-                        {cleanName}
-                      </td>
-
+                      <td style={{ padding: '12px', wordBreak: 'break-all', fontWeight: '500', color: '#333' }}>{cleanName}</td>
                       <td style={{ padding: '12px', color: 'green', fontWeight: 'bold' }}>COMPLIANT ✅</td>
-
                       <td style={{ padding: '12px', textAlign: 'center' }}>
-                        {/* Uses the secure signed URL provided by backend */}
                         <a
                           href={log.signedUrl}
                           target="_blank"
@@ -274,7 +291,6 @@ function App() {
                           ⬇️ View / Download
                         </a>
                       </td>
-
                     </tr>
                   );
                 })}
