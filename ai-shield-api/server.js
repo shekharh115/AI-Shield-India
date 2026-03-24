@@ -10,6 +10,8 @@ const { register, login } = require('./controllers/authController');
 
 const app = express();
 
+app.set('trust proxy', 1);
+
 // Protect the entire server from spam/DDoS
 app.use(limiter);
 
